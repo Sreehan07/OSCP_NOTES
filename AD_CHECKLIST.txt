@@ -1,0 +1,161 @@
+# Active Directory Enumeration Checklist
+
+## 1. Preparation
+
+- [ ] Verify access with authenticated domain user credentials (e.g., `user@LOGISTICS.INLANEFREIGHT.LOCAL`).
+
+- [ ] Confirm network connectivity to Domain Controllers (DCs) on ports 88 (Kerberos), 389/636 (LDAP/LDAPS), 445 (SMB).
+
+- [ ] Gather tools: [[PowerShell]], [[PowerView]], [[BloodHound]], [[Rubeus]], [[Mimikatz]], or [[ldapsearch]] (run in memory for stealth).
+
+- [ ] Identify target domain: [[LOGISTICS.INLANEFREIGHT.LOCAL]] and parent [[INLANEFREIGHT.LOCAL]]. #setup
+
+  
+
+## 2. Domain Information
+
+- [ ] Enumerate domain details (name, SID, forest, functional level).
+
+  - Command: `Get-ADDomain` or `Get-Domain` ([[PowerView]]).
+
+  - Example: `Get-ADDomain -Identity LOGISTICS.INLANEFREIGHT.LOCAL` #SID:S-1-5-21-2806153819-209893948-922872689
+
+- [ ] Identify Domain Controllers.
+
+  - Command: `Get-ADDomainController -Filter *` or `netdom query dc`.
+
+- [ ] Check forest information.
+
+  - Command: `Get-ADForest` or `Get-Forest`. #forest:INLANEFREIGHT.LOCAL
+
+  
+
+## 3. User Enumeration
+
+- [ ] List all users (usernames, display names, group memberships).
+
+  - Command: `Get-ADUser -Filter * -Properties SamAccountName,DisplayName,MemberOf` or `Get-DomainUser`.
+
+- [ ] Find privileged users (e.g., [[Domain Admins]], [[Enterprise Admins]]).
+
+  - Command: `Get-ADGroupMember -Identity "Domain Admins"` or `Get-DomainGroupMember -Identity "Domain Admins"`.
+
+- [ ] Identify [[ASREPRoasting]]-vulnerable users (`DONT_REQUIRE_PREAUTH`).
+
+  - Command: `Get-ADUser -Filter {userAccountControl -band 0x4000000} -Properties SamAccountName` or `Get-DomainUser -PreauthNotRequired`. #ASREPRoast
+
+- [ ] Check for [[SIDHistory]] entries.
+
+  - Command: `Get-ADUser -Filter * -Properties SIDHistory | Where-Object {$_.SIDHistory}`. #SIDHistory
+
+  
+
+## 4. Group Enumeration
+
+- [ ] List all groups (name, scope).
+
+  - Command: `Get-ADGroup -Filter * -Properties Name,GroupScope` or `Get-DomainGroup`.
+
+- [ ] Enumerate privileged groups (e.g., [[Enterprise Admins]]).
+
+  - Command: `Get-ADGroup -Identity "Enterprise Admins" -Server dc1.inlanefreight.local` or `Get-DomainGroup -Identity "Enterprise Admins"`. #SID:S-1-5-21-3842939050-3880317879-2865463114-519
+
+- [ ] Check group memberships.
+
+  - Command: `net group "Domain Admins" /domain` or `Get-DomainGroupMember -Identity "Domain Admins"`.
+
+  
+
+## 5. Computer Enumeration
+
+- [ ] List computers (servers, workstations).
+
+  - Command: `Get-ADComputer -Filter * -Properties Name,OperatingSystem` or `Get-DomainComputer`.
+
+- [ ] Find Domain Controllers.
+
+  - Command: `Get-ADComputer -Filter {PrimaryGroupID -eq 516}`.
+
+  
+
+## 6. Trust Enumeration
+
+- [ ] Enumerate domain trusts (e.g., child-to-parent trust).
+
+  - Command: `Get-ADTrust -Filter *` or `Get-DomainTrust`.
+
+  - Example: `Get-DomainTrust -Domain LOGISTICS.INLANEFREIGHT.LOCAL` #trust:INLANEFREIGHT.LOCAL
+
+- [ ] Check SID filtering status.
+
+  - Command: `nltest /domain_trusts /all_trusts`. #SIDFiltering
+
+  
+
+## 7. Permissions and Vulnerabilities
+
+- [ ] Enumerate ACLs for excessive permissions.
+
+  - Command: `Get-ObjectAcl -Identity "Domain Admins" | Select-Object IdentityReference,ActiveDirectoryRights` or `Get-DomainObjectAcl`.
+
+- [ ] Check for [[Kerberoasting]]-vulnerable accounts (SPNs).
+
+  - Command: `Get-DomainUser -SPN | Select-Object SamAccountName,servicePrincipalName`. #Kerberoast
+
+- [ ] Identify password policies.
+
+  - Command: `Get-ADDefaultDomainPasswordPolicy` or `Get-DomainPolicy`.
+
+  
+
+## 8. BloodHound Analysis
+
+- [ ] Collect data with [[SharpHound]].
+
+  - Command: `.\SharpHound.exe -c All`.
+
+- [ ] Analyze attack paths in [[BloodHound]] GUI.
+
+  - Queries: “Shortest Path to Domain Admins,” “Users with Pre-Auth Disabled,” “Users with SIDHistory,” “Domain Trusts”. #BloodHound
+
+  
+
+## 9. LDAP Queries (Cross-Platform)
+
+- [ ] List users via LDAP.
+
+  - Command: `ldapsearch -x -H ldap://dc1.logistics.inlanefreight.local -D "user@LOGISTICS.INLANEFREIGHT.LOCAL" -W -b "DC=LOGISTICS,DC=INLANEFREIGHT,DC=LOCAL" "(objectClass=user)" sAMAccountName displayName`.
+
+- [ ] Find [[ASREPRoasting]]-vulnerable users.
+
+  - Command: `ldapsearch -x -H ldap://dc1.logistics.inlanefreight.local -D "user@LOGISTICS.INLANEFREIGHT.LOCAL" -W -b "DC=LOGISTICS,DC=INLANEFREIGHT,DC=LOCAL" "(&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304))" sAMAccountName`.
+
+  
+
+## 10. Validate Findings
+
+- [ ] Cross-reference data from [[PowerShell]], [[PowerView]], [[BloodHound]], and [[ldapsearch]].
+
+- [ ] Document key targets (e.g., privileged users, [[ASREPRoast]] accounts, SIDs for [[Golden Ticket]] or [[SIDHistory]]).
+
+- [ ] Plan next steps for attacks (e.g., [[ASREPRoasting]], [[Kerberoasting]], [[Golden Ticket]], [[SIDHistory]] abuse).
+
+  
+
+## Notes
+
+- **Stealth**: Run tools in memory (e.g., [[PowerView]], [[Rubeus]]) to avoid detection.
+
+- **Permissions**: Most tasks require only authenticated user access; some (e.g., ACLs) may need elevated privileges.
+
+- **Obsidian Tips**:
+
+  - Use [[ ]] to link to notes for tools (e.g., [[Mimikatz]]) or attacks (e.g., [[Golden Ticket]]).
+
+  - Add #tags for organization (e.g., #AD, #Cybersecurity).
+
+  - Use Obsidian’s Tasks plugin for dynamic queries: `not done` or `due today`.
+
+- **Relation to Attacks**: Supports [[ASREPRoasting]] (pre-auth users), [[Golden Ticket]] (SIDs, KRBTGT), and [[SIDHistory]] (trust escalation).
+
+- **Lab Use Only**: Test in a controlled environment to avoid production disruption.
