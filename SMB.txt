@@ -1,0 +1,76 @@
+  `Server Message Block` (`SMB`) is a client-server protocol that regulates access to files and entire directories and other network resources such as printers, routers, or interfaces released for the network
+
+| **Command**                                       | **Description**                                           |
+| ------------------------------------------------- | --------------------------------------------------------- |
+| `smbclient -N -L //<FQDN/IP>`                     | Null session authentication on SMB.                       |
+| `smbclient //<FQDN/IP>/<share>`                   | Connect to a specific SMB share.                          |
+| `rpcclient -U "" <FQDN/IP>`                       | Interaction with the target using RPC.                    |
+| `samrdump.py <FQDN/IP>`                           | Username enumeration using Impacket scripts.              |
+| `smbmap -H <FQDN/IP>`                             | Enumerating SMB shares.                                   |
+| `crackmapexec smb <FQDN/IP> --shares -u '' -p ''` | Enumerating SMB shares using null session authentication. |
+| `enum4linux-ng.py <FQDN/IP> -A`                   | SMB enumeration using enum4linux.                         |
+ impacket - Samrdump.py
+
+```shell-session
+ samrdump.py 10.129.14.128
+```
+## Samba
+SAMBA is an alternative implementation of the SMB server called Samba, which is developed for Unix-based operating systems. Samba implements the Common Internet File System (`CIFS`) network protocol.
+
+*config file /etc/samba/smb.conf 
+
+**default config**
+
+| **Setting**                    | **Description**                                                       |     |
+| ------------------------------ | --------------------------------------------------------------------- | --- |
+| `[sharename]`                  | The name of the network share.                                        |     |
+| `workgroup = WORKGROUP/DOMAIN` | Workgroup that will appear when clients query.                        |     |
+| `path = /path/here/`           | The directory to which user is to be given access.                    |     |
+| `server string = STRING`       | The string that will show up when a connection is initiated.          |     |
+| `unix password sync = yes`     | Synchronize the UNIX password with the SMB password?                  |     |
+| `usershare allow guests = yes` | Allow non-authenticated users to access defined share?                |     |
+| `map to guest = bad user`      | What to do when a user login request doesn't match a valid UNIX user? |     |
+| `browseable = yes`             | Should this share be shown in the list of available shares?           |     |
+| `guest ok = yes`               | Allow connecting to the service without using a password?             |     |
+| `read only = yes`              | Allow users to read files only?                                       |     |
+| `create mask = 0700`           | What permissions need to be set for newly created files?              |     |
+
+**Dangerous Settings**
+
+|**Setting**|**Description**|
+|---|---|
+|`browseable = yes`|Allow listing available shares in the current share?|
+|`read only = no`|Forbid the creation and modification of files?|
+|`writable = yes`|Allow users to create and modify files?|
+|`guest ok = yes`|Allow connecting to the service without using a password?|
+|`enable privileges = yes`|Honor privileges assigned to specific SID?|
+|`create mask = 0777`|What permissions must be assigned to the newly created files?|
+|`directory mask = 0777`|What permissions must be assigned to the newly created directories?|
+|`logon script = script.sh`|What script needs to be executed on the user's login?|
+|`magic script = script.sh`|Which script should be executed when the script gets closed?|
+|`magic output = script.out`|Where the output of the magic script needs to be stored?|
+#### RPCclient
+
+SMB
+
+```shell-session
+GANGADHAR565@htb[/htb]$ rpcclient -U "" 10.129.14.128
+
+Enter WORKGROUP\'s password:
+rpcclient $> 
+```
+
+The `rpcclient` offers us many different requests with which we can execute specific functions on the SMB server to get information. A complete list of all these functions can be found on the [man page](https://www.samba.org/samba/docs/current/man-html/rpcclient.1.html) of the rpcclient.
+
+| **Query**                 | **Description**                                                    |
+| ------------------------- | ------------------------------------------------------------------ |
+| `srvinfo`                 | Server information.                                                |
+| `enumdomains`             | Enumerate all domains that are deployed in the network.            |
+| `querydominfo`            | Provides domain, server, and user information of deployed domains. |
+| `netshareenumall`         | Enumerates all available shares.                                   |
+| `netsharegetinfo <share>` | Provides information about a specific share.                       |
+| `enumdomusers`            | Enumerates all domain users.                                       |
+| `queryuser <RID>`         | Provides information about a specific user.                        |
+other tools
+[[smbmap]]
+[[crackmapexec]]
