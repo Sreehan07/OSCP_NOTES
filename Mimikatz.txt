@@ -1,0 +1,64 @@
+### **`sekurlsa` Module: Extracting Credentials from Memory (LSASS)**
+
+This is one of the most well-known modules in Mimikatz. It directly interacts with the LSASS process memory to pull out credentials of logged-on users.
+
+| Command                     | What it Extracts                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sekurlsa::logonpasswords`  | This is the primary command for dumping a wide variety of credentials from memory. The output can include:<ul><li>**Plaintext Passwords:** For users logged on interactively, especially if the WDigest security provider is enabled.</li><li>**NTLM Hashes:** The NTLM hash of user passwords, which can be used in pass-the-hash attacks.</li><li>**Kerberos Tickets:** Including Ticket Granting Tickets (TGTs) and service tickets. These can be used in pass-the-ticket attacks.</li><li>**Kerberos Keys:** Such as AES256, AES128, and DES keys derived from the user's password.</li><li>**PINs:** For users authenticated with a PIN.</li></ul> |
+| `sekurlsa::tickets /export` | Extracts all Kerberos tickets from memory and saves them to `.kirbi` files in the current directory. These files can then be used in pass-the-ticket attacks.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `sekurlsa::pth`             | **Pass-the-Hash:** This command doesn't just extract; it also uses a stolen NTLM or AES hash to launch a new process (e.g., a command prompt) under the context of the compromised user, without needing their plaintext password.                                                                                                                                                                                                                                                                                                                                                                                                                      |
+
+if `sekurlsa::logonpasswords` retrives the null passwords, which means 'wdigest is not storing credentials in plaintext ' 
+we can modify the following registry key to force the WDigest to store credentials in plaintext next time someone logs on to the target system:
+attacker@victim
+
+```
+reg add HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest /v UseLogonCredential /t REG_DWORD /d 1
+```
+then reboot the system or spam another shell with 'runas /user: powershell' and try the mimikatz
+### **`lsadump` Module: Dumping from SAM and LSA**
+
+This module targets the Security Account Manager (SAM) database and the Local Security Authority (LSA) secrets for offline credential extraction.
+
+| Command           | What it Extracts                                                                                                                                                                                                                                                                                          |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lsadump::sam`    | Interacts with the SAM database to extract the NTLM hashes of all **local** user accounts on the machine. This is particularly useful on non-domain-controlled systems or for gaining access to local administrator accounts.                                                                             |
+| `lsadump::lsa`    | Dumps LSA secrets from the registry. This can include service account passwords and other sensitive system information.                                                                                                                                                                                   |
+| `lsadump::dcsync` | This powerful command simulates a domain controller and requests user credential data from another domain controller through replication. It can extract the password hash (NTLM) of any user in the domain, including the `krbtgt` account, without needing to run code on the domain controller itself. |
+
+---
+
+### **`kerberos` Module: Forging and Manipulating Tickets**
+
+This module is central to Kerberos-based attacks, allowing for the creation of powerful tickets for persistence and widespread access.
+
+|Command|What it Extracts/Creates|
+|---|---|
+|`kerberos::list`|Lists all the Kerberos tickets present in the current user's session.|
+|`kerberos::ptt`|**Pass-the-Ticket:** This command allows you to inject a stolen Kerberos ticket (a `.kirbi` file) into the current session, enabling you to impersonate the user to whom the ticket belongs.|
+|`kerberos::golden`|**Golden Ticket Creation:** This command forges a Kerberos Ticket Granting Ticket (TGT) for any user (even non-existent ones) with any desired privileges. To create a golden ticket, you first need the NTLM hash of the `krbtgt` account, which can be obtained using `lsadump::dcsync`. A golden ticket provides domain-wide, long-term persistence.|
+|`kerberos::silver`|**Silver Ticket Creation:** This command forges a Kerberos Ticket Granting Service (TGS) ticket for a specific service on a particular server (e.g., CIFS for file shares, HOST for remote management). This requires the password hash of the service account. Silver tickets provide more targeted access than golden tickets and are harder to detect as they do not communicate with the Domain Controller.|
+
+---
+
+### **`token` Module: Privilege Escalation**
+
+This module is used to manipulate Windows access tokens to elevate privileges.
+
+|Command|What it Extracts/Does|
+|---|---|
+|`token::list`|Lists all the access tokens available on the system.|
+|`token::elevate`|Impersonates an available access token. A common use is `token::elevate /admin` to find and impersonate a token belonging to a domain administrator who is also logged into the system.|
+|`token::revert`|Reverts to the original access token after impersonation.|
+
+---
+
+### **Other Notable Modules and Commands**
+
+|Module|Command|What it Extracts/Does|
+|---|---|---|
+|**`crypto`**|`crypto::certificates /export`|Exports user and machine certificates along with their private keys, even if they are marked as non-exportable. This can be used to impersonate users or systems in certificate-based authentication scenarios.|
+||`crypto::keys /export`|Exports cryptographic keys from the Cryptography API (CAPI) and Cryptography API: Next Generation (CNG).|
+|**`vault`**|`vault::list`|Lists all the credentials stored in the Windows Vault, which can include saved passwords for network shares, RDP sessions, and other applications.|
+||`vault::cred`|Displays the plaintext credentials from a specific vault entry.|
+|**`dpapi`**|`dpapi::cred`|Decrypts credentials that have been protected using the Data Protection API (DPAPI). This can include saved passwords from web browsers (like Chrome and Edge), Wi-Fi passwords, and other application-specific credentials.|
