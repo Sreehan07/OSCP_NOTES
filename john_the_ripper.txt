@@ -1,0 +1,89 @@
+#### Single crack mode
+
+`Single crack mode` is a rule-based cracking technique that is most useful when targeting Linux credentials. It generates password candidates based on the victim's username, home directory name, and [GECOS](https://en.wikipedia.org/wiki/Gecos_field) values (full name, room number, phone number, etc.). These strings are run against a large set of rules that apply common string modifications seen in passwords
+```
+r0lf:$6$ues25dIanlctrWxg$nZHVz2z4kCy1760Ee28M1xtHdGoy0C2cYzZ8l2sVa1kIa8K9gAcdBP.GI6ng/qA4oaMrgElZ1Cb9OeXO4Fvy3/:0:0:Rolf Sebastian:/home/r0lf:/bin/bash
+
+john --single hash
+```
+
+Based on the contents of the file, it can be inferred that the victim has the username `r0lf`, the real name `Rolf Sebastian`, and the home directory `/home/r0lf`. Single crack mode will use this information to generate candidate passwords and test them against the hash
+
+**wordlist**
+```shell-session
+john --wordlist=<wordlist_file> <hash_file>
+```
+
+-> hashID tool to determine the type of hash 
+```shell-session
+ hashid -j 193069ceb0461e1d40d216e32c79c704
+```
+
+## Cracking files
+It is also possible to crack password-protected or encrypted files with JtR. Multiple `"2john"` tools come with JtR that can be used to process files and produce hashes compatible with JtR.
+
+| **Tool**                | **Description**                               |
+| ----------------------- | --------------------------------------------- |
+| `pdf2john`              | Converts PDF documents for John               |
+| `ssh2john`              | Converts SSH private keys for John            |
+| `mscash2john`           | Converts MS Cash hashes for John              |
+| `keychain2john`         | Converts OS X keychain files for John         |
+| `rar2john`              | Converts RAR archives for John                |
+| `pfx2john`              | Converts PKCS#12 files for John               |
+| `truecrypt_volume2john` | Converts TrueCrypt volumes for John           |
+| `keepass2john`          | Converts KeePass databases for John           |
+| `vncpcap2john`          | Converts VNC PCAP files for John              |
+| `putty2john`            | Converts PuTTY private keys for John          |
+| `zip2john`              | Converts ZIP archives for John                |
+| `hccap2john`            | Converts WPA/WPA2 handshake captures for John |
+| `office2john`           | Converts MS Office documents for John         |
+| `wpa2john`              | Converts WPA/WPA2 handshakes for John         |
+and more.... 'locate \*2john\*'
+
+ssh
+```shell-session
+ssh2john.py SSH.private > ssh.hash
+
+john --wordlist=rockyou.txt ssh.hash
+
+```
+office
+```shell-session
+office2john.py Protected.docx > protected-docx.hash
+ john --wordlist=rockyou.txt protected-docx.hash
+ john protected-docx.hash --show
+```
+and similarly pdf2john ,zip2john ,bitlocker2john, and etc...
+
+
+# Dynamic Cracking Command :
+```
+john --format=dynamic='sha256($s.$p)' --wordlist=/usr/share/wordlists/rockyou.txt
+```
+
+The --format=dynamic option tells John to use a custom hash format defined by the dynamic configuration.
+The expression sha256($s.$p) specifies the hash algorithm:
+
+$s: Represents the salt (a random string used to make the hash more secure).
+$p: Represents the plaintext password.
+$s.$p: Indicates that the salt and password are concatenated (salt followed by password) before being hashed with the SHA-256 algorithm.
+## example
+`f.frizzle:$dynamic_82$067f746faca44f170c6cd9d7c4bdac6bc342c608687733f80ff784242b0b0c03$/aACFhikmNopqrRTVz2489`
+This string appears to be the target hash that John is trying to crack. Let’s break it down:
+
+f.frizzle:
+This likely represents the username or an identifier associated with the hash. In John, the format often starts with the username or account name, followed by the hash details.
+
+
+`$dynamic_82$`:
+This indicates the hash format used, specifically a dynamic format defined in John the Ripper.
+dynamic_82 typically corresponds to a specific configuration for SHA-256-based hashes, often in the form sha256($s.$p), where the salt and password are concatenated and hashed. This aligns with the --format option in the command.
+
+`067f746faca44f170c6cd9d7c4bdac6bc342c608687733f80ff784242b0b0c03`:
+This is a 64-character hexadecimal string, which is the SHA-256 hash (since SHA-256 produces a 256-bit or 64-character hex output).
+This is the hash that John will try to match by combining words from the wordlist with the salt and computing their SHA-256 hashes.
+
+`/aACFhikmNopqrRTVz2489`
+This is the salt used in the hashing process.
+In the sha256($s.$p) format, the salt (/aACFhikmNopqrRTVz2489) is prepended to the password, and the resulting string is hashed to produce the hash (067f...0c03).
+The salt is often stored alongside the hash to allow verification during password cracking.
